@@ -8,7 +8,7 @@ def calc_accuracy(X,Y):
     return train_acc
 
 def train_epoch(model, optimizer, loss_fn, scheduler, train_dataloader, test_dataloader,
-                num_epochs, device, max_grad_norm):
+                num_epochs, device, max_grad_norm,early_stopping_callback):
     for e in range(num_epochs):
         train_acc = 0.0
         test_acc = 0.0
@@ -35,4 +35,30 @@ def train_epoch(model, optimizer, loss_fn, scheduler, train_dataloader, test_dat
             label = label.to(device)
             out = model(token_ids, valid_length, segment_ids)
             test_acc += calc_accuracy(out, label)
+        if early_stopping_callback(test_acc / (batch_id+1), model):
+            print("[Early Stopping] - at Epoch " + str(e+1))
+            break
         print("epoch {} test acc {}".format(e+1, test_acc / (batch_id+1)))
+    return (e+1)
+
+def predict(path,device,pred_dataloader,df_pred,best_epoch,augmented_size,augmented_ratio):
+    best_model = torch.load(path+"model.pt")
+    best_model.eval()
+    test_result = []
+
+    for batch_id, (token_ids, valid_length, segment_ids) in enumerate(tqdm_notebook(pred_dataloader)):
+        token_ids = token_ids.to(device)
+        segment_ids = segment_ids.to(device)
+        valid_length= valid_length
+        with torch.no_grad():
+            predictions = best_model(token_ids, valid_length, segment_ids)
+        predictions = predictions.argmax(dim=-1)
+        test_result.append(predictions.cpu().numpy())
+
+    pred_label = []
+    for i in test_result:
+        for label in i:
+            pred_label.append(label)
+    df_pred["label"] = pred_label
+    df_pred.drop("tokenized",axis=1,inplace=True)
+    df_pred.to_csv(path+"/predictions/pred_korean_hate"+"_epoch_"+str(best_epoch)+"__"+str(augmented_size)+"_"+str(augmented_ratio)+".csv",sep=",",index=False)

@@ -6,9 +6,33 @@ from transformers import BertModel
 from transformers import AdamW
 from transformers.optimization import get_cosine_schedule_with_warmup
 
-def get_model(train_dataloader, model_name, device, learning_rate, num_epochs, warmup_ratio):
+class EarlyStopping():
+    def __init__(self, patience=3, path='./checkpoint.pt'):
+        self.patience = patience
+        self.count = 0
+        self.best_acc = 0
+        self.early_stop = False
+        self.path = path
+
+    def __call__(self, acc, model):
+        if acc >= self.best_acc:
+            self.best_acc = acc
+            self.count = 0
+
+            torch.save(model, self.path)
+
+            self.early_stop = False
+        else:
+            self.count += 1
+
+            if self.count == self.patience:
+                self.early_stop = True
+        
+        return self.early_stop
+
+def get_model(train_dataloader, model_name, device, learning_rate, num_epochs, warmup_ratio,num_classes, early_stop_patience, path):
     bert_model = BertModel.from_pretrained(model_name)
-    model = BERTClassifier(bert_model, dr_rate=0.5).to(device)
+    model = BERTClassifier(bert_model, num_classes=num_classes, dr_rate=0.5).to(device)
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
@@ -22,7 +46,9 @@ def get_model(train_dataloader, model_name, device, learning_rate, num_epochs, w
     warmup_step = int(t_total * warmup_ratio)
 
     scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_step, num_training_steps=t_total)
-    return model, optimizer, loss_fn, scheduler
+    early_stopping_callback = EarlyStopping(patience=early_stop_patience, path=path+"model.pt")
+
+    return model, optimizer, loss_fn, scheduler, early_stopping_callback
 
 
 class BERTClassifier(nn.Module):
